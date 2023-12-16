@@ -20,3 +20,6 @@ python pred_injury_prone_fifa.py
 The training of the Random Forest classifier with hyperparameter tuning on the number of trees is saved in the **tables** directory as **random_forest_accuracies_table.csv** and the scatter plot is saved in the **plots** directory as **random_forest_accuracies_plot.csv**.  
 
 The test predictions and labels of the best Random Forest classifier is saved in the **tables** directory as **random_forest_test_table.csv** and the confusion matrix of the test performance is saved in the **plots** directory as **random_forest_confusion_matrix_plot.jpg**.
+
+# References
+Breiman, L. (2001). Random Forests. *Machine Learning*, 45, 5–32. https://doi.org/10.1023/A:1010933404324
