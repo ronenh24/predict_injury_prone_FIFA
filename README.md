@@ -1,5 +1,8 @@
 # Author
-Ronen H
+Ronen H  
+
+# Time Frame
+May 2022 to June 2022.  
 
 # Data Source
 The individual FIFA data from 2015 to 2022 can be accessed via [https://www.kaggle.com/datasets/stefanoleone992/fifa-22-complete-player-dataset](https://www.kaggle.com/datasets/stefanoleone992/fifa-22-complete-player-dataset).
