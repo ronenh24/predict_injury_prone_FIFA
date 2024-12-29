@@ -3,256 +3,251 @@
 
 CSE 163
 
-This program trains a Random Forest Classifer that
-predicts whether a player is injury prone or not,
-plots the training of the Random Forest Classifier,
-and visualizes and assesses its performance.
+This program trains a Random Forest Classifier that predicts whether a player is injury prone or not,
+plots the training of the Random Forest Classifier, and visualizes and assesses its performance.
 """
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
+import optuna
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
+from tqdm import trange
+from sklearn.tree import plot_tree
+from sklearn.metrics import average_precision_score, precision_recall_curve, precision_recall_fscore_support,\
+    accuracy_score, ConfusionMatrixDisplay, PrecisionRecallDisplay
+from sklearn.dummy import DummyClassifier
+from sklearn.naive_bayes import ComplementNB
 import matplotlib.pyplot as plt
-from sklearn.metrics import ConfusionMatrixDisplay
+import seaborn as sns
+import numpy as np
 
 # File path of combined FIFA data from 2015 to 2022.
 DATA_FILE = 'data/players_15_to_22_data.csv'
 
 
-def pred_injury_prone(players_15_to_22_data):
+def pred_injury_prone(players_15_to_22_data: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray, float, float,
+                                                                    pd.DataFrame, pd.DataFrame, np.ndarray, float,
+                                                                    float, float, pd.DataFrame, pd.DataFrame]:
     """
-    From the given players_15_to_22_data (a pandas DataFrame)
-    combined FIFA data from 2015 to 2022, trains a
-    Random Forest Classifer to predict whether
-    a player is injury prone or not. Returns the
-    table of train accuracies and validation accuracies
-    for each number of Decision Tree Classifiers
-    used for the Random Forest Classifier as a
-    pandas DataFrame, the best
-    Random Forest Classifier based off the best
-    validation accuracy, the test accuracy of the
-    best Random Forest Classifier, and the table of
-    test predictions from the best Random Forest
-    Classifier and test labels as a pandas
-    DataFrame.
+    Trains a Random Forest Classifier to predict whether a player is injury prone or not.
 
-    The table of train accuracies and validation
-    accuracies for each number of Decision Tree
-    Classifiers used for the Random Forest Classifier
-    is saved under the 'tables' directory as a CSV
-    'random_forest_accuracies_table.csv'.
-
-    The table of test predictions from the
-    best Random Forest Classifier and
-    test labels is saved under the 'tables'
-    directory as a CSV
-    'random_forest_test_table.csv'.
+    Returns validation average precisions table, injury prone probability, and test metrics.
     """
 
-    # The label is the injury proneness of a player
-    # with the two classes being not injury prone
-    # and injury prone.
+    # The labels are not injury prone and injury prone.
     label = 'injury_prone'
     label_classes = ['Not Injury Prone', 'Injury Prone']
 
-    # Non-Features include columns with a noticeable amount of
-    # missing values or 0 values.
-    non_features = ['sofifa_id', 'short_name', 'value_eur',
-                    'club_team_id', 'league_level', 'club_loaned_from',
-                    'club_joined', 'nationality_id', label]
+    # Non-features are specific information (club, league, nationality) about a player.
+    non_features = ['sofifa_id', 'short_name', 'value_eur', 'club_team_id', "club_name", "league_name", 'league_level',
+                    "club_jersey_number", 'club_loaned_from', 'club_joined', 'nationality_id', "nationality_name",
+                    label]
     features = players_15_to_22_data.drop(columns=non_features)
     features = pd.get_dummies(features)
     labels = players_15_to_22_data[label]
 
-    # The number of Decision Tree Classifiers
-    # for the Random Forest Classifier is the main
-    # hyperparameter determining its performance.
-    num_trees = [1, 5, 10, 15, 20, 25, 50, 75, 100]
+    # The number of trees, maximum depth, and maximum features for the Random Forest Classifier are hyperparameters
+    # that most influence performance
+    rf_study = optuna.create_study(study_name="Random Forest Optimization", direction="maximize")
 
-    # Table of train accuracies for each hyperparameter setting.
-    train_accuracies = []
+    # Split the data into 80% train and 20% test.
+    train_features, test_features, train_labels, test_labels = train_test_split(features, labels, test_size=0.2,
+                                                                                stratify=labels)
 
-    # Table of validation accuracies for each hyperparameter setting.
-    val_accuracies = []
+    # Choose best hyperparameters for Random Forest Classifier with Bayesian Optimization.
+    rf_study.optimize(lambda trial: rf_objective(trial, train_features, train_labels), 100, n_jobs=6)
+    rf_best_params = rf_study.best_params
+    best_rf = RandomForestClassifier(rf_best_params["n_estimators"], max_depth=rf_best_params["max_depth"],
+                                     max_features=rf_best_params["max_features"], n_jobs=4, verbose=1)
+    best_rf.fit(train_features, train_labels)
+    for i in trange(1, 25):
+        _, ax = plt.subplots(figsize=(30, 30))
+        plot_tree(best_rf.estimators_[i - 1], max_depth=3, feature_names=best_rf.feature_names_in_,
+                  class_names=label_classes, filled=True, ax=ax)
+        plt.savefig("plots/random_forest_tree_" + str(i) + ".jpg", dpi=500, bbox_inches="tight")
+        plt.close()
 
-    # Best Random Forest Classifer based off best validation
-    # accuracy.
-    best_rf = None
+    # Validation average precisions from training.
+    train_table = rf_study.trials_dataframe()[["params_n_estimators", "params_max_depth", "params_max_features",
+                                               "value"]]
+    train_table = train_table.rename(columns={"params_n_estimators": "Number of Trees",
+                                              "params_max_depth": "Maximum Depth",
+                                              "params_max_features": "Maximum Features",
+                                              "value": "Validation PR AUC"})
+    train_table.to_csv('tables/random_forest_train_table.csv', index=False)
 
-    # The best validation accuracy.
-    max_val_accuracy = -1
-
-    # 70% of the data is used for training. 10% is used for validation.
-    # 20% is used for testing.
-    train_val_features, test_features, train_val_labels, test_labels = \
-        train_test_split(features, labels, test_size=0.2)
-    train_features, val_features, train_labels, val_labels = \
-        train_test_split(train_val_features, train_val_labels, test_size=0.125)
-
-    # Builds Random Forest Classifiers for each number of
-    # Decision Tree Classifiers for the Random Forest Classifier.
-    # Determines best Random Forest Classifier based
-    # off best validation accuracy.
-    for num_tree in num_trees:
-        rf = RandomForestClassifier(num_tree,
-                                    n_jobs=10,
-                                    class_weight='balanced_subsample')
-        rf.fit(train_features, train_labels)
-        train_pred = rf.predict(train_features)
-        train_accuracy = accuracy_score(train_labels, train_pred)
-        train_accuracies.append(train_accuracy)
-        val_pred = rf.predict(val_features)
-        val_accuracy = accuracy_score(val_labels, val_pred)
-        val_accuracies.append(val_accuracy)
-        if val_accuracy > max_val_accuracy:
-            best_rf = rf
-            max_val_accuracy = val_accuracy
-
-    # The table of train and validation accuracies
-    # for each number of Decision Tree Classifiers
-    # used for the Random Forest Classifier.
-    accuracies_table = pd.DataFrame({
-        'Number of Trees for Random Forest': num_trees,
-        'Train Accuracy': train_accuracies,
-        'Validation Accuracy': val_accuracies})
-    accuracies_table.to_csv('tables/random_forest_accuracies_table.csv',
-                            index=False)
-
-    # Uses the test set for the best Random
-    # Forest Classifier to estimate its
-    # accuracy on future unseen data.
-    test_pred = best_rf.predict(test_features)
+    # Estimate average precision of best Random Forest Classifier on future unseen data.
+    test_pred_proba = best_rf.predict_proba(test_features)[:, 1]
+    test_pr_auc = average_precision_score(test_labels, test_pred_proba)
+    test_precisions, test_recalls, test_thresholds = precision_recall_curve(test_labels, test_pred_proba)
+    test_f1s = (2 * test_precisions * test_recalls) / (test_precisions + test_recalls)
+    test_f1 = np.nanmax(test_f1s)
+    test_precision = test_precisions[np.nanargmax(test_f1s)]
+    test_recall = test_recalls[np.nanargmax(test_f1s)]
+    test_pred = (test_pred_proba >= test_thresholds[np.nanargmax(test_f1s)]).astype(int)
     test_accuracy = accuracy_score(test_labels, test_pred)
 
-    # The table of test predictions and test
-    # labels.
+    # First baseline with 100% recall.
+    baseline = DummyClassifier(strategy="constant", constant=1)
+    baseline.fit(train_features, train_labels)
+    baseline_pred = baseline.predict(test_features)
+    baseline_precision, baseline_recall, baseline_f1, _ = precision_recall_fscore_support(test_labels, baseline_pred,
+                                                                                          average="binary")
+    baseline_accuracy = accuracy_score(test_labels, baseline_pred)
+
+    # Second baseline with Naive Bayes.
+    nb = ComplementNB(norm=True)
+    nb.fit(train_features, train_labels)
+    nb_pred_proba = nb.predict_proba(test_features)[:, 1]
+    nb_pr_auc = average_precision_score(test_labels, nb_pred_proba)
+    nb_precisions, nb_recalls, nb_thresholds = precision_recall_curve(test_labels, nb_pred_proba)
+    nb_f1s = (2 * nb_precisions * nb_recalls) / (nb_precisions + nb_recalls)
+    nb_f1 = np.nanmax(nb_f1s)
+    nb_precision = nb_precisions[np.nanargmax(nb_f1s)]
+    nb_recall = nb_recalls[np.nanargmax(nb_f1s)]
+    nb_pred = (nb_pred_proba >= nb_thresholds[np.nanargmax(nb_f1s)]).astype(int)
+    nb_accuracy = accuracy_score(test_labels, nb_pred)
+
+    # The table of test metrics.
+    test_metrics = pd.DataFrame({"PR AUC": [baseline_precision, nb_pr_auc, test_pr_auc],
+                                 "F1": [baseline_f1, nb_f1, test_f1],
+                                 "Precision": [baseline_precision, nb_precision, test_precision],
+                                 "Recall": [baseline_recall, nb_recall, test_recall],
+                                 "Accuracy": [baseline_accuracy, nb_accuracy, test_accuracy]},
+                                ["Baseline", "Naive Bayes", "Random Forest"])
+    test_metrics.to_csv("tables/test_metrics.csv")
+
+    # The table of test predictions and test labels.
+    test_labels = test_labels.reset_index(drop=True)
     test_labels[test_labels == 0] = label_classes[0]
     test_labels[test_labels == 1] = label_classes[1]
     test_pred = pd.Series(test_pred)
     test_pred[test_pred == 0] = label_classes[0]
     test_pred[test_pred == 1] = label_classes[1]
-    test_table = pd.DataFrame({
-            'Test Predictions': list(test_pred),
-            'Test Labels': list(test_labels)})
-    test_table.to_csv('tables/random_forest_test_table.csv',
-                      index=False)
+    test_table = pd.DataFrame({'Test Predictions': test_pred, 'Test Labels': test_labels})
+    test_table.to_csv('tables/random_forest_test_predictions.csv', index=False)
 
-    return (accuracies_table, best_rf,
-            test_accuracy, test_table)
+    # The baseline table.
+    baseline_pred = pd.Series(baseline_pred)
+    baseline_pred[baseline_pred == 0] = label_classes[0]
+    baseline_pred[baseline_pred == 1] = label_classes[1]
+    baseline_table = pd.DataFrame({'Test Predictions': baseline_pred, 'Test Labels': test_labels})
+    baseline_table.to_csv('tables/baseline_test_predictions.csv', index=False)
+
+    # The Naive Bayes table.
+    nb_pred = pd.Series(nb_pred)
+    nb_pred[nb_pred == 0] = label_classes[0]
+    nb_pred[nb_pred == 1] = label_classes[1]
+    nb_table = pd.DataFrame({'Test Predictions': nb_pred, 'Test Labels': test_labels})
+    nb_table.to_csv('tables/naive_bayes_test_predictions.csv', index=False)
+
+    return train_table, test_pred_proba, test_precision, test_recall, test_table, baseline_table, nb_pred_proba,\
+        nb_precision, nb_recall, nb_accuracy, nb_table, test_metrics
 
 
-def plot_train_val_accuracies(accuracies_table):
+def rf_objective(trial: optuna.Trial, train_features: pd.DataFrame, train_labels: pd.Series) -> float:
+    n_estimators = trial.suggest_int("n_estimators", 1, 1000, log=True)
+    max_depth = trial.suggest_int("max_depth", 1, 1000, log=True)
+    max_features = trial.suggest_float("max_features", 0.01, 0.10, log=True)
+
+    rf = GridSearchCV(RandomForestClassifier(verbose=1), {"n_estimators": [n_estimators], "max_depth": [max_depth],
+                                                          "max_features": [max_features]}, scoring="average_precision",
+                      refit=False, cv=4, verbose=3)
+    rf.fit(train_features, train_labels)
+
+    return rf.best_score_
+
+
+def plot_train_val_accuracies(train_table: pd.DataFrame) -> None:
     """
-    From the given accuracies_table of train and
-    validation accuracies for each number of Decision
-    Tree Classifiers used for the Random Forest Classifier
-    (a pandas DataFrame), plots the scatter plot with the
-    accuracies as the vertical axis and
-    the number of Decision Tree Classifiers
-    used for the Random Forest Classifier as the
-    horizontal axis.
+    Plots the scatter plot of validation accuracies with respect to the set of hyperparameters seen during training.
 
-    Essentially, the plot of the training of the
-    Random Forest Classifier.
-
-    The plot is saved under the 'plots' directory
-    as an image 'random_forest_accuracies_plot.jpg'.
+    The plot is saved under the 'plots' directory as an image 'random_forest_pr_auc_plot.jpg'.
     """
-    fig, ax = plt.subplots()
-    accuracies_table.plot(x='Number of Trees for Random Forest',
-                          y='Train Accuracy',
-                          kind='scatter', ax=ax, color='blue')
-    accuracies_table.plot(x='Number of Trees for Random Forest',
-                          y='Validation Accuracy',
-                          kind='scatter', ax=ax, color='orange')
-    plt.legend(['Train Accuracy', 'Validation Accuracy'])
-    plt.xlabel('Number of Trees for Random Forest')
-    plt.ylabel('Accuracy')
-    plt.title('Random Forest Accuracy vs Number of Trees for Random Forest')
-    plt.savefig('plots/random_forest_accuracies_plot.jpg',
-                bbox_inches="tight")
+    _, ax = plt.subplots(figsize=(20, 20))
+    sns.scatterplot(train_table, x="Number of Trees", y="Validation PR AUC", hue="Maximum Features",
+                    size="Maximum Depth", ax=ax)
+    ax.grid()
+    plt.legend()
+    plt.title('Random Forest Validation PR AUC vs Number of Trees')
+    plt.savefig('plots/random_forest_pr_auc_plot.jpg', dpi=500, bbox_inches="tight")
     plt.show()
+    plt.close()
 
 
-def plot_confusion_matrix(test_table):
+def plot_confusion_matrix(test_table: pd.DataFrame, test_pred_proba: np.ndarray, test_precision: float,
+                          test_recall: float, baseline_table: pd.DataFrame, nb_table: pd.DataFrame,
+                          nb_pred_proba: np.ndarray, nb_precision: float, nb_recall: float) -> None:
     """
-    From the given test_table (a pandas DataFrame)
-    of test predictions and test labels for
-    whether a player is injury prone or not,
-    plots the confusion matrix.
+    Plots the confusion matrix from the test predictions of the best Random Forest Classifier. Plots the precision
+    recall curve from the test probabilities of the best Random Forest Classifier.
 
-    Can be used to assess the performance of the
-    best Random Forest Classifier by
-    prediction classes and label classes.
+    The confusion matrix is saved under the 'plots' directory as an image 'random_forest_confusion_matrix_plot.jpg'.
 
-    The confusion matrix is saved under the
-    'plots' directory as an image
-    'random_forest_confusion_matrix_plot.jpg'.
+    The precision recall curve is saved under the "plots" directory as an image "precision_recall.jpg".
     """
 
     test_pred = test_table['Test Predictions']
     test_labels = test_table['Test Labels']
 
-    label_classes = ['Not Injury Prone', 'Injury Prone']
+    label_classes = ['Injury Prone', 'Not Injury Prone']
 
-    ConfusionMatrixDisplay.from_predictions(test_labels, test_pred,
-                                            labels=label_classes, cmap='Blues')
+    _, ax = plt.subplots(figsize=(20, 20))
+    ConfusionMatrixDisplay.from_predictions(test_labels, test_pred, labels=label_classes, cmap='Blues', ax=ax)
     plt.title('Random Forest Confusion Matrix')
-    plt.savefig('plots/random_forest_confusion_matrix_plot.jpg',
-                bbox_inches="tight")
+    plt.savefig('plots/random_forest_confusion_matrix_plot.jpg', dpi=500, bbox_inches="tight")
     plt.show()
+    plt.close()
 
+    nb_pred = nb_table["Test Predictions"]
 
-def compute_majority_class_inj_prone_prop(players_15_to_22_data):
-    """
-    From the given players_15_to_22_data (a pandas DataFrame)
-    combined FIFA data from 2015 to 2022, returns the
-    majority class proportion of injury prone designations
-    (not injury prone and injury prone) and the majority
-    class in the combined FIFA data from 2015 to 2022.
+    _, ax = plt.subplots(figsize=(20, 20))
+    ConfusionMatrixDisplay.from_predictions(test_labels, nb_pred, labels=label_classes, cmap='Blues', ax=ax)
+    plt.title('Naive Bayes Confusion Matrix')
+    plt.savefig('plots/naive_bayes_confusion_matrix_plot.jpg', dpi=500, bbox_inches="tight")
+    plt.show()
+    plt.close()
 
-    Can be used to assess the performance of the
-    best Random Forest Classifier by
-    comparison to the test accuracy.
-    """
-    inj_prone_col = players_15_to_22_data['injury_prone']
-    not_inj_prone = inj_prone_col[inj_prone_col == 0]
-    inj_prone = inj_prone_col[inj_prone_col == 1]
-    num_not_inj_prone = len(not_inj_prone)
-    num_inj_prone = len(inj_prone)
-    majority_class_prop = max(num_not_inj_prone, num_inj_prone) / \
-        len(inj_prone_col)
-    majority_class = "Not Injury Prone"
-    if num_inj_prone > num_not_inj_prone:
-        majority_class = "Injury Prone"
-    return (majority_class_prop, majority_class)
+    baseline_pred = baseline_table["Test Predictions"]
+
+    _, ax = plt.subplots(figsize=(20, 20))
+    ConfusionMatrixDisplay.from_predictions(test_labels, baseline_pred, labels=label_classes, cmap='Blues', ax=ax)
+    plt.title('Baseline Confusion Matrix')
+    plt.savefig('plots/baseline_confusion_matrix_plot.jpg', dpi=500, bbox_inches="tight")
+    plt.close()
+
+    _, ax = plt.subplots(figsize=(20, 20))
+    PrecisionRecallDisplay.from_predictions(test_labels, test_pred_proba, pos_label="Injury Prone",
+                                            name="Random Forest Classifier", ax=ax, plot_chance_level=True,
+                                            color="blue")
+    PrecisionRecallDisplay.from_predictions(test_labels, nb_pred_proba, pos_label="Injury Prone",
+                                            name="Naive Bayes Classifier", ax=ax, color="purple")
+    ax.scatter(test_recall, test_precision, color="blue")
+    ax.scatter(nb_recall, nb_precision, color="purple")
+    ax.grid()
+    plt.title("Precision Recall Curve")
+    plt.savefig("plots/precision_recall.jpg", dpi=500, bbox_inches="tight")
+    plt.show()
+    plt.close()
 
 
 def main():
     players_15_to_22_data = pd.read_csv(DATA_FILE)
 
-    accuracies_table, best_rf, test_accuracy, test_table = \
-        pred_injury_prone(players_15_to_22_data)
+    train_table, test_pred_proba, test_precision, test_recall, test_table, baseline_table, nb_pred_proba, nb_precision,\
+        nb_recall, nb_accuracy, nb_table, test_metrics = pred_injury_prone(players_15_to_22_data)
 
-    print('Train Accuracy and Validation Accuracy Table:')
-    print(accuracies_table)
+    print('Train Table:')
+    print(train_table)
+    print()
+    print("Test Metrics:")
+    print(test_metrics)
     print()
 
-    plot_train_val_accuracies(accuracies_table)
-    print('Test Accuracy:', test_accuracy)
-    print()
+    plot_train_val_accuracies(train_table)
 
-    print('Test Predictions and Test Labels:')
-    print(test_table)
-    print()
-
-    plot_confusion_matrix(test_table)
-
-    majority_class_prop, majority_class = \
-        compute_majority_class_inj_prone_prop(players_15_to_22_data)
-    print('Majority Class Proportion:', majority_class_prop)
-    print('The Majority Class is', majority_class)
+    plot_confusion_matrix(test_table, test_pred_proba, test_precision, test_recall, baseline_table,
+                          nb_table, nb_pred_proba, nb_precision, nb_recall)
 
 
 if __name__ == '__main__':
