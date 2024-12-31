@@ -15,14 +15,14 @@ import numpy as np
 
 # File paths for the individual FIFA datasets
 # from 2015 to 2022 (in order).
-PATH_15 = 'data/players_15.csv'
-PATH_16 = 'data/players_16.csv'
-PATH_17 = 'data/players_17.csv'
-PATH_18 = 'data/players_18.csv'
-PATH_19 = 'data/players_19.csv'
-PATH_20 = 'data/players_20.csv'
-PATH_21 = 'data/players_21.csv'
-PATH_22 = 'data/players_22.csv'
+PATH_15 = '../data/players_15.csv'
+PATH_16 = '../data/players_16.csv'
+PATH_17 = '../data/players_17.csv'
+PATH_18 = '../data/players_18.csv'
+PATH_19 = '../data/players_19.csv'
+PATH_20 = '../data/players_20.csv'
+PATH_21 = '../data/players_21.csv'
+PATH_22 = '../data/players_22.csv'
 
 
 def test_load_data(path_15, path_16, path_17, path_18,

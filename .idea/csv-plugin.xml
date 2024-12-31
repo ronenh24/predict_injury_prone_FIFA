@@ -10,6 +10,13 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="\tables\random_forest_train_table.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="\tables\test_metrics.csv">
           <value>
             <Attribute>

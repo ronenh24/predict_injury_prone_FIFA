@@ -20,6 +20,7 @@ from sklearn.naive_bayes import ComplementNB
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+import joblib
 
 # File path of combined FIFA data from 2015 to 2022.
 DATA_FILE = 'data/players_15_to_22_data.csv'
@@ -60,6 +61,7 @@ def pred_injury_prone(players_15_to_22_data: pd.DataFrame) -> tuple[pd.DataFrame
     best_rf = RandomForestClassifier(rf_best_params["n_estimators"], max_depth=rf_best_params["max_depth"],
                                      max_features=rf_best_params["max_features"], n_jobs=4, verbose=1)
     best_rf.fit(train_features, train_labels)
+    joblib.dump(best_rf, "best_random_forest.pkl", 3)
     for i in trange(1, 25):
         _, ax = plt.subplots(figsize=(30, 30))
         plot_tree(best_rf.estimators_[i - 1], max_depth=3, feature_names=best_rf.feature_names_in_,

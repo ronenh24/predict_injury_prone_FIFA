@@ -24,6 +24,7 @@ PATH_22 = 'data/players_22.csv'
 # to use for machine learning tasks.
 SAVE_PATH = 'data/players_15_to_22_data.csv'
 
+
 def load_data(path_15, path_16, path_17, path_18, path_19, path_20, path_21, path_22):
     """
     From the given file paths for individual FIFA datasets from 2015 to 2022, returns the combined
@@ -49,23 +50,28 @@ def load_data(path_15, path_16, path_17, path_18, path_19, path_20, path_21, pat
     players_21['year'] = [2021] * players_21.shape[0]
     players_22['year'] = [2022] * players_22.shape[0]
 
-    players_15_to_22 = pd.concat([players_15, players_16, players_17, players_18, players_19, players_20, players_21, players_22],
-                                 ignore_index=True)
+    players_15_to_22 = pd.concat(
+        [players_15, players_16, players_17, players_18, players_19, players_20, players_21, players_22],
+        ignore_index=True)
 
-    irrelevant_cols = ['player_url', 'long_name', 'dob', 'nation_position', 'nation_team_id', 'nation_jersey_number', 'body_type',
-                       'real_face', 'release_clause_eur', 'player_tags', 'mentality_composure', 'ls', 'st', 'rs', 'lw', 'lf',
-                       'cf', 'rf', 'rw', 'lam', 'cam', 'ram', 'lm', 'lcm', 'cm', 'rcm', 'rm', 'lwb', 'ldm', 'cdm', 'rdm', 'rwb',
-                       'lb', 'lcb', 'cb', 'rcb', 'rb', 'gk', 'player_face_url', 'club_logo_url', 'club_flag_url', 'nation_logo_url',
+    irrelevant_cols = ['player_url', 'long_name', 'dob', 'nation_position', 'nation_team_id', 'nation_jersey_number',
+                       'body_type',
+                       'real_face', 'release_clause_eur', 'player_tags', 'mentality_composure', 'ls', 'st', 'rs', 'lw',
+                       'lf',
+                       'cf', 'rf', 'rw', 'lam', 'cam', 'ram', 'lm', 'lcm', 'cm', 'rcm', 'rm', 'lwb', 'ldm', 'cdm',
+                       'rdm', 'rwb',
+                       'lb', 'lcb', 'cb', 'rcb', 'rb', 'gk', 'player_face_url', 'club_logo_url', 'club_flag_url',
+                       'nation_logo_url',
                        'nation_flag_url']
-    players_15_to_22_relevant = players_15_to_22.drop(columns = irrelevant_cols)
+    players_15_to_22_relevant = players_15_to_22.drop(columns=irrelevant_cols)
 
     return players_15_to_22_relevant
 
 
 def clean_player_positions(player_positions):
     """
-    From the given player_positions (a String) with each position separated by commas, returns the cleaned player_positions
-    with each position separated by spaces as a String.
+    From the given player_positions (a String) with each position separated by commas, returns the cleaned
+    player_positions with each position separated by spaces as a String.
 
     If there are no player_positions given (NaN), then an empty String is returned.
     """
@@ -134,7 +140,8 @@ def replace_missing_values(players_15_to_22_cleaned):
     """
 
     players_15_to_22_cleaned_copy = players_15_to_22_cleaned.copy()
-    players_15_to_22_cleaned_copy = players_15_to_22_cleaned_copy.loc[players_15_to_22_cleaned['club_team_id'].notnull(), :]
+    players_15_to_22_cleaned_copy = players_15_to_22_cleaned_copy.loc[
+                                    players_15_to_22_cleaned['club_team_id'].notnull(), :]
     for column in players_15_to_22_cleaned_copy.columns:
         column_type = players_15_to_22_cleaned_copy[column].dtype
         if column_type == 'int64' or column_type == 'float64':
@@ -154,9 +161,10 @@ def player_positions_labels(players_15_to_22_cleaned):
     """
 
     vectorizer_player_positions = CountVectorizer()
-    count_player_positions_matrix = vectorizer_player_positions.fit_transform(players_15_to_22_cleaned['player_positions'])
-    player_positions_data = pd.DataFrame(count_player_positions_matrix.toarray(), index = players_15_to_22_cleaned.index,
-                                         columns = vectorizer_player_positions.get_feature_names_out())
+    count_player_positions_matrix = vectorizer_player_positions.fit_transform(
+        players_15_to_22_cleaned['player_positions'])
+    player_positions_data = pd.DataFrame(count_player_positions_matrix.toarray(), index=players_15_to_22_cleaned.index,
+                                         columns=vectorizer_player_positions.get_feature_names_out())
     return player_positions_data
 
 
@@ -169,8 +177,8 @@ def work_rate_labels(players_15_to_22_cleaned):
 
     vectorizer_work_rate = CountVectorizer()
     count_work_rate_matrix = vectorizer_work_rate.fit_transform(players_15_to_22_cleaned['work_rate'])
-    work_rate_data = pd.DataFrame(count_work_rate_matrix.toarray(), index = players_15_to_22_cleaned.index,
-                                  columns = vectorizer_work_rate.get_feature_names_out())
+    work_rate_data = pd.DataFrame(count_work_rate_matrix.toarray(), index=players_15_to_22_cleaned.index,
+                                  columns=vectorizer_work_rate.get_feature_names_out())
     return work_rate_data
 
 
@@ -183,8 +191,8 @@ def player_traits_labels(players_15_to_22_cleaned):
 
     vectorizer_player_traits = CountVectorizer()
     count_player_traits_matrix = vectorizer_player_traits.fit_transform(players_15_to_22_cleaned['player_traits'])
-    player_traits_data = pd.DataFrame(count_player_traits_matrix.toarray(), index = players_15_to_22_cleaned.index,
-                                      columns = vectorizer_player_traits.get_feature_names_out())
+    player_traits_data = pd.DataFrame(count_player_traits_matrix.toarray(), index=players_15_to_22_cleaned.index,
+                                      columns=vectorizer_player_traits.get_feature_names_out())
     return player_traits_data
 
 
@@ -200,8 +208,9 @@ def combine_data(players_15_to_22_cleaned, player_positions_data, work_rate_data
     players_15_to_22_data = players_15_to_22_cleaned.join(player_positions_data)
     players_15_to_22_data = players_15_to_22_data.join(work_rate_data)
     players_15_to_22_data = players_15_to_22_data.join(player_traits_data)
-    players_15_to_22_data = players_15_to_22_data.drop(columns = ['player_positions', 'work_rate', 'player_traits'])
+    players_15_to_22_data = players_15_to_22_data.drop(columns=['player_positions', 'work_rate', 'player_traits'])
     return players_15_to_22_data
+
 
 def main():
     players_15_to_22_relevant = load_data(PATH_15, PATH_16, PATH_17, PATH_18, PATH_19, PATH_20, PATH_21, PATH_22)
@@ -210,7 +219,8 @@ def main():
 
     # Clean the 'player_positions', 'work_rate', and 'player_traits'
     # columns.
-    players_15_to_22_cleaned['player_positions'] = players_15_to_22_relevant['player_positions'].apply(clean_player_positions)
+    players_15_to_22_cleaned['player_positions'] = players_15_to_22_relevant['player_positions'].apply(
+        clean_player_positions)
     players_15_to_22_cleaned['work_rate'] = players_15_to_22_relevant['work_rate'].apply(clean_work_rate)
     players_15_to_22_cleaned['player_traits'] = players_15_to_22_relevant['player_traits'].apply(clean_player_traits)
 
@@ -220,12 +230,14 @@ def main():
     work_rate_data = work_rate_labels(players_15_to_22_cleaned)
     player_traits_data = player_traits_labels(players_15_to_22_cleaned)
 
-    players_15_to_22_data = combine_data(players_15_to_22_cleaned, player_positions_data, work_rate_data, player_traits_data)
+    players_15_to_22_data = combine_data(players_15_to_22_cleaned, player_positions_data, work_rate_data,
+                                         player_traits_data)
 
     # Saves the cleaned, combined FIFA data from 2015 to 2022
     # ready to use for machine learning tasks under the
     # 'data' directory as a CSV 'players_15_to_22_data.csv'.
     players_15_to_22_data.to_csv(SAVE_PATH, index=False)
+
 
 if __name__ == '__main__':
     main()

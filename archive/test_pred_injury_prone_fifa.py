@@ -13,7 +13,7 @@ from unittest import TestCase
 import pandas as pd
 
 # File path of combined FIFA data from 2015 to 2022.
-DATA_FILE = 'data/players_15_to_22_data.csv'
+DATA_FILE = '../data/players_15_to_22_data.csv'
 
 
 def test_compute_majority_class_inj_prone_prop(players_15_to_22_data):
