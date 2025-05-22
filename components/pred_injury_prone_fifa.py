@@ -8,7 +8,6 @@ is injury prone or not, plots the training of the Random Forest Classifier,
 and visualizes and assesses its performance.
 """
 
-import multiprocessing
 import pandas as pd
 import optuna
 import matplotlib.pyplot as plt
@@ -32,7 +31,6 @@ import lightgbm as lgbm
 # File path of combined FIFA data from 2015 to 2022.
 DATA_FILE = 'data/players_15_to_22_data.csv'
 
-n_jobs = max(1, multiprocessing.cpu_count() - 2)
 
 plt.rcParams['axes.labelsize'] = 'larger'
 plt.rcParams['xtick.labelsize'] = 'large'
@@ -160,8 +158,7 @@ def train_rf(train_features: pd.DataFrame, train_labels: pd.Series,
     rf_study.optimize(
         lambda trial: rf_objective(
             trial, train_features, train_labels
-        ),
-        20, n_jobs=4
+        ), 20
     )
     rf_best_params = rf_study.best_params
     n_estimators = rf_best_params["n_estimators"]
@@ -247,9 +244,9 @@ def train_rf(train_features: pd.DataFrame, train_labels: pd.Series,
 
 def rf_objective(trial: optuna.Trial, train_features: pd.DataFrame,
                  train_labels: pd.Series) -> float:
-    n_estimators = trial.suggest_int("n_estimators", 100, 200)
+    n_estimators = trial.suggest_int("n_estimators", 100, 500)
     max_depth = trial.suggest_int("max_depth", 20, 100)
-    max_features = trial.suggest_float("max_features", 0.05, 0.25)
+    max_features = trial.suggest_float("max_features", 0.05, 0.20)
     min_samples_split = trial.suggest_int("min_samples_split", 2, 10)
     min_samples_leaf = trial.suggest_int("min_samples_leaf", 1, 5)
 
@@ -257,7 +254,7 @@ def rf_objective(trial: optuna.Trial, train_features: pd.DataFrame,
         "n_estimators": n_estimators, "max_depth": max_depth,
         "max_features": max_features, "min_samples_split": min_samples_split,
         "min_samples_leaf": min_samples_leaf,
-        "class_weight": "balanced_subsample", "verbose": 1
+        "class_weight": "balanced_subsample", "n_jobs": 4, "verbose": 1
     }
 
     scores = []
@@ -321,19 +318,19 @@ def train_lgbm(train_features: pd.DataFrame, train_labels: pd.Series,
     lgbm_study.optimize(
         lambda trial: lgbm_objective(
             trial, train_features, train_labels
-        ),
-        20, n_jobs=4
+        ), 20
     )
     lgbm_best_params = lgbm_study.best_params
     num_leaves = lgbm_best_params["num_leaves"]
     learning_rate = lgbm_best_params["learning_rate"]
     n_estimators = lgbm_best_params["n_estimators"]
+    num_iterations = lgbm_best_params["num_iterations"]
     scale_pos_weight = lgbm_best_params["scale_pos_weight"]
     min_child_samples = lgbm_best_params["min_child_samples"]
 
     params = {
         "num_leaves": num_leaves, "learning_rate": learning_rate,
-        "n_estimators": n_estimators, "num_iterations": 1000,
+        "n_estimators": n_estimators, "num_iterations": num_iterations,
         "scale_pos_weight": scale_pos_weight,
         "min_child_samples": min_child_samples, "n_jobs": 4
     }
@@ -408,19 +405,20 @@ def train_lgbm(train_features: pd.DataFrame, train_labels: pd.Series,
 
 def lgbm_objective(trial: optuna.Trial, train_features: pd.DataFrame,
                    train_labels: pd.Series) -> float:
-    num_leaves = trial.suggest_int("num_leaves", 32, 1024)
+    num_leaves = trial.suggest_int("num_leaves", 128, 2048)
     learning_rate = trial.suggest_float(
-        "learning_rate", 5e-3, 5e-1, log=True
+        "learning_rate", 5e-2, 5e-1, log=True
     )
-    n_estimators = trial.suggest_int("n_estimators", 100, 200)
+    n_estimators = trial.suggest_int("n_estimators", 100, 500)
+    num_iterations = trial.suggest_int("num_iterations", 1000, 2000)
     scale_pos_weight = trial.suggest_int("scale_pos_weight", 10, 20)
     min_child_samples = trial.suggest_int("min_child_samples", 20, 100)
 
     params = {
         "num_leaves": num_leaves, "learning_rate": learning_rate,
-        "n_estimators": n_estimators, "num_iterations": 1000,
+        "n_estimators": n_estimators, "num_iterations": num_iterations,
         "scale_pos_weight": scale_pos_weight,
-        "min_child_samples": min_child_samples, "n_jobs": 1, "verbose": -1
+        "min_child_samples": min_child_samples, "n_jobs": 4, "verbose": -1
     }
 
     scores = []
@@ -485,8 +483,7 @@ def train_logistic(train_features: pd.DataFrame, train_labels: pd.Series,
     lr_study.optimize(
         lambda trial: lr_objective(
             trial, train_features, train_labels
-        ),
-        20, n_jobs=4
+        ), 20
     )
     lr_best_params = lr_study.best_params
     C = 10 ** lr_best_params["C_inverse"]
@@ -574,7 +571,7 @@ def lr_objective(trial: optuna.Trial, train_features: pd.DataFrame,
     params = {
         "penalty": "elasticnet", "C": C,
         "class_weight": "balanced", "solver": "saga",
-        "max_iter": 2000, "n_jobs": 1, "l1_ratio": l1_ratio
+        "max_iter": 2000, "n_jobs": 4, "l1_ratio": l1_ratio
     }
 
     scores = []

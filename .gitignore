@@ -1,2 +1,3 @@
 *.pkl
 archive
+__pycache__
