@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import joblib
-from sklearn.model_selection import StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     average_precision_score, precision_recall_fscore_support,
@@ -175,7 +174,7 @@ def train_rf(train_features: pd.DataFrame, train_labels: pd.Series,
     }
     best_rf = CalibratedClassifierCV(
         RandomForestClassifier(**params), method="isotonic"
-    ).fit(train_features, train_labels)
+    ).fit(train_features.drop(columns="year"), train_labels)
     joblib.dump(best_rf, "best_random_forest.pkl", 3)
 
     # Validation average precisions from training.
@@ -202,7 +201,9 @@ def train_rf(train_features: pd.DataFrame, train_labels: pd.Series,
 
     # Estimate average precision of best Random Forest Classifier
     # on future unseen data.
-    test_pred_proba = best_rf.predict_proba(test_features)[:, 1]
+    test_pred_proba = best_rf.predict_proba(
+        test_features.drop(columns="year")
+    )[:, 1]
     test_pr_auc = average_precision_score(test_labels, test_pred_proba)
     test_precisions, test_recalls, test_thresholds =\
         precision_recall_curve(test_labels, test_pred_proba)
@@ -258,14 +259,15 @@ def rf_objective(trial: optuna.Trial, train_features: pd.DataFrame,
     }
 
     scores = []
-    for train_idx, val_idx in\
-            StratifiedKFold(5, shuffle=True).split(
-                train_features, train_labels
-            ):
-        train_X, train_y =\
-            train_features.iloc[train_idx, :], train_labels.iloc[train_idx]
-        val_X, val_y =\
-            train_features.iloc[val_idx, :], train_labels.iloc[val_idx]
+    for year in train_features["year"].unique():
+        train_X = train_features[train_features["year"] != year].drop(
+            columns="year"
+        )
+        train_y = train_labels.loc[train_X.index]
+        val_X = train_features[train_features["year"] == year].drop(
+            columns="year"
+        )
+        val_y = train_labels[val_X.index]
         rf = CalibratedClassifierCV(
             RandomForestClassifier(**params), method="isotonic", cv=4
         ).fit(train_X, train_y)
@@ -321,7 +323,8 @@ def train_lgbm(train_features: pd.DataFrame, train_labels: pd.Series,
         ), 20
     )
     lgbm_best_params = lgbm_study.best_params
-    num_leaves = lgbm_best_params["num_leaves"]
+    max_depth = lgbm_best_params["max_depth"]
+    num_leaves = 2 ** max_depth
     learning_rate = lgbm_best_params["learning_rate"]
     n_estimators = lgbm_best_params["n_estimators"]
     num_iterations = lgbm_best_params["num_iterations"]
@@ -329,29 +332,30 @@ def train_lgbm(train_features: pd.DataFrame, train_labels: pd.Series,
     min_child_samples = lgbm_best_params["min_child_samples"]
 
     params = {
-        "num_leaves": num_leaves, "learning_rate": learning_rate,
-        "n_estimators": n_estimators, "num_iterations": num_iterations,
-        "scale_pos_weight": scale_pos_weight,
+        "max_depth": max_depth, "num_leaves": num_leaves,
+        "learning_rate": learning_rate, "n_estimators": n_estimators,
+        "num_iterations": num_iterations, "scale_pos_weight": scale_pos_weight,
         "min_child_samples": min_child_samples, "n_jobs": 4
     }
     best_lgbm = CalibratedClassifierCV(
         lgbm.LGBMClassifier(**params), method="isotonic"
-    ).fit(train_features, train_labels)
+    ).fit(train_features.drop(columns="year"), train_labels)
     joblib.dump(best_lgbm, "best_lightgbm.pkl", 3)
 
     # Validation average precisions from training.
     train_table = lgbm_study.trials_dataframe()[
         [
-            "params_num_leaves", "params_learning_rate",
-            "params_n_estimators", "params_scale_pos_weight",
-            "params_min_child_samples", "value"
+            "params_max_depth", "params_learning_rate",
+            "params_n_estimators", "params_num_iterations",
+            "params_scale_pos_weight", "params_min_child_samples", "value"
         ]
     ]
     train_table = train_table.rename(
         columns={
-                    "params_num_leaves": "Number of Leaves",
+                    "params_max_depth": "Maximum Depth",
                     "params_learning_rate": "Learning Rate",
                     "params_n_estimators": "Number of Trees",
+                    "params_num_iterations": "Number of Iterations",
                     "params_scale_pos_weight": "Positive Class Weight",
                     "params_min_child_samples": "Minimum Leaf",
                     "value": "Validation PR AUC"
@@ -363,7 +367,9 @@ def train_lgbm(train_features: pd.DataFrame, train_labels: pd.Series,
 
     # Estimate average precision of best LightGBM Classifier
     # on future unseen data.
-    test_pred_proba = best_lgbm.predict_proba(test_features)[:, 1]
+    test_pred_proba = best_lgbm.predict_proba(
+        test_features.drop(columns="year")
+    )[:, 1]
     test_pr_auc = average_precision_score(test_labels, test_pred_proba)
     test_precisions, test_recalls, test_thresholds =\
         precision_recall_curve(test_labels, test_pred_proba)
@@ -405,31 +411,32 @@ def train_lgbm(train_features: pd.DataFrame, train_labels: pd.Series,
 
 def lgbm_objective(trial: optuna.Trial, train_features: pd.DataFrame,
                    train_labels: pd.Series) -> float:
-    num_leaves = trial.suggest_int("num_leaves", 128, 2048)
+    max_depth = trial.suggest_int("max_depth", 5, 15)
     learning_rate = trial.suggest_float(
         "learning_rate", 5e-2, 5e-1, log=True
     )
     n_estimators = trial.suggest_int("n_estimators", 100, 500)
     num_iterations = trial.suggest_int("num_iterations", 1000, 2000)
     scale_pos_weight = trial.suggest_int("scale_pos_weight", 10, 20)
-    min_child_samples = trial.suggest_int("min_child_samples", 20, 100)
+    min_child_samples = trial.suggest_int("min_child_samples", 10, 50)
 
     params = {
-        "num_leaves": num_leaves, "learning_rate": learning_rate,
-        "n_estimators": n_estimators, "num_iterations": num_iterations,
-        "scale_pos_weight": scale_pos_weight,
+        "max_depth": max_depth, "num_leaves": 2 ** max_depth,
+        "learning_rate": learning_rate, "n_estimators": n_estimators,
+        "num_iterations": num_iterations, "scale_pos_weight": scale_pos_weight,
         "min_child_samples": min_child_samples, "n_jobs": 4, "verbose": -1
     }
 
     scores = []
-    for train_idx, val_idx in\
-            StratifiedKFold(5, shuffle=True).split(
-                train_features, train_labels
-            ):
-        train_X, train_y =\
-            train_features.iloc[train_idx, :], train_labels.iloc[train_idx]
-        val_X, val_y =\
-            train_features.iloc[val_idx, :], train_labels.iloc[val_idx]
+    for year in train_features["year"].unique():
+        train_X = train_features[train_features["year"] != year].drop(
+            columns="year"
+        )
+        train_y = train_labels.loc[train_X.index]
+        val_X = train_features[train_features["year"] == year].drop(
+            columns="year"
+        )
+        val_y = train_labels[val_X.index]
         lg = CalibratedClassifierCV(
             lgbm.LGBMClassifier(**params), method="isotonic", cv=4
         ).fit(train_X, train_y)
@@ -454,7 +461,7 @@ def plot_train_val_accuracies_lightgbm(train_table: pd.DataFrame) -> None:
     _, ax = plt.subplots(figsize=(20, 20))
     sns.scatterplot(
         train_table, x="Number of Trees", y="Validation PR AUC",
-        hue="Learning Rate", size="Number of Leaves", ax=ax,
+        hue="Learning Rate", size="Maximum Depth", ax=ax,
         palette=sns.color_palette("viridis", as_cmap=True)
     )
     ax.grid()
@@ -495,7 +502,9 @@ def train_logistic(train_features: pd.DataFrame, train_labels: pd.Series,
         "max_iter": 2000, "n_jobs": 4, "l1_ratio": l1_ratio
     }
     scale_model = StandardScaler()
-    train_features = scale_model.fit_transform(train_features)
+    train_features = scale_model.fit_transform(
+        train_features.drop(columns="year")
+    )
     best_lr = LogisticRegression(**params).fit(train_features, train_labels)
     joblib.dump(best_lr, "best_logistic_regression.pkl", 3)
 
@@ -520,7 +529,7 @@ def train_logistic(train_features: pd.DataFrame, train_labels: pd.Series,
 
     # Estimate average precision of best Logistic Regression
     # on future unseen data.
-    test_features = scale_model.transform(test_features)
+    test_features = scale_model.transform(test_features.drop(columns="year"))
     test_pred_proba = best_lr.predict_proba(test_features)[:, 1]
     test_pr_auc = average_precision_score(test_labels, test_pred_proba)
     test_precisions, test_recalls, test_thresholds =\
@@ -575,14 +584,15 @@ def lr_objective(trial: optuna.Trial, train_features: pd.DataFrame,
     }
 
     scores = []
-    for train_idx, val_idx in\
-            StratifiedKFold(5, shuffle=True).split(
-                train_features, train_labels
-            ):
-        train_X, train_y =\
-            train_features.iloc[train_idx, :], train_labels.iloc[train_idx]
-        val_X, val_y =\
-            train_features.iloc[val_idx, :], train_labels.iloc[val_idx]
+    for year in train_features["year"].unique():
+        train_X = train_features[train_features["year"] != year].drop(
+            columns="year"
+        )
+        train_y = train_labels.loc[train_X.index]
+        val_X = train_features[train_features["year"] == year].drop(
+            columns="year"
+        )
+        val_y = train_labels[val_X.index]
         scale_model = StandardScaler()
         train_X = scale_model.fit_transform(train_X)
         val_X = scale_model.transform(val_X)
